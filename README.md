@@ -1,5 +1,8 @@
 # CFnew - 终端 v3.1
 
+> 本 fork 新增 **cfnew 节点 + edgetunnel 客户端规则组合版**。部署请选择根目录 [`_worker.js`](./_worker.js)：节点生成、订阅地址和服务端转发沿用 cfnew；完整客户端配置采用 edgetunnel 的转换模板及兼容处理。组合原理、配置方法和限制见 [`COMBINATION.md`](./COMBINATION.md)。家宽链式完整订阅暂不支持组合规则。
+
+
 > **⚠️ 重要：部署后请将兼容日期设置为 `2026-01-20`**
 >
 > **Pages 部署：**
@@ -500,3 +503,4 @@ path 示例：
 ## Star History
 
 [![Star History Chart](https://star-history.dera.page/svg?repos=byJoey/cfnew&type=Timeline)](https://star-history.dera.page/#byJoey/cfnew&Timeline&LogScale)
+
