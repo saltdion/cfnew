@@ -9359,32 +9359,73 @@ function Clash订阅配置文件热补丁(Clash_原始订阅内容, config_JSON 
 	const 需要处理gRPC = config_JSON?.传输协议 === "grpc" && Boolean(gRPCUserAgent);
 	const gRPCUserAgentYAML = gRPCUserAgent ? JSON.stringify(gRPCUserAgent) : null;
 	let clash_yaml = Clash_原始订阅内容.replace(/mode:\s*Rule\b/g, 'mode: rule');
+	// 删除模板中与用户指定策略冲突的条目，保留其余规则及原有顺序。
+	let inRules = false;
+	clash_yaml = clash_yaml.split('\n').filter(line => {
+		if (/^rules:\s*(?:#.*)?$/.test(line.trimEnd())) {
+			inRules = true;
+			return true;
+		}
+		if (/^[\w-]+:/.test(line)) inRules = false;
+		if (!inRules) return true;
+		const ruleText = line.trimEnd().match(/^\s*-\s*(.*)$/)?.[1]?.trim();
+		const match = ruleText?.match(/^(?:'([^']*)'|"([^"]*)"|([^'"#][^#]*?))\s*(?:#.*)?$/);
+		if (!match) return true;
+		const [type, domain, target] = (match[1] ?? match[2] ?? match[3]).split(',').map(value => value.trim());
+		if (domain === 'dl.google.com' && (type === 'DOMAIN' || type === 'DOMAIN-SUFFIX') && (target === 'DIRECT' || /^🎯\s*全球直连$/.test(target))) return false;
+		if (type !== 'DOMAIN-SUFFIX') return true;
+		if (domain === 'xdrig.com' && (target === 'DIRECT' || /^🎯\s*全球直连$/.test(target))) return false;
+		if (domain === 'baidustatic.com' && (target === 'REJECT' || target === 'REJECT-DROP' || /^🛑\s*全球拦截$/.test(target))) return false;
+		return true;
+	}).join('\n');
 
+	// 优先绑定自动选择组；自定义模板则使用其第一个策略组。
+	const groupSection = clash_yaml.match(/^proxy-groups:\s*\n([\s\S]*?)(?=^[a-zA-Z][\w-]*:|(?![\s\S]))/m)?.[1] || '';
+	const groupNames = [...groupSection.matchAll(/^\s*-\s*(?:\{\s*)?name:\s*(?:"([^"]+)"|'([^']+)'|([^,}\r\n]+))/gm)].map(match => (match[1] || match[2] || match[3]).trim());
+	const dnsProxyGroup = groupNames.find(name => /^♻️\s*自动选择$/.test(name)) || groupNames[0];
+	if (!dnsProxyGroup) throw new Error('Clash 配置缺少可用于 DNS 的策略组');
 	const baseDnsBlock = `dns:
   enable: true
+  ipv6: false
+  respect-rules: true
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.1/16
+  use-hosts: true
   default-nameserver:
     - 223.5.5.5
     - 119.29.29.29
-    - 114.114.114.114
-  use-hosts: true
+  proxy-server-nameserver:
+    - "https://dns.alidns.com/dns-query#DIRECT"
+    - "https://doh.pub/dns-query#DIRECT"
   nameserver:
-    - https://sm2.doh.pub/dns-query
-    - https://dns.alidns.com/dns-query
+    - "223.5.5.5#DIRECT"
+    - "119.29.29.29#DIRECT"
   fallback:
-    - 8.8.4.4
-    - 208.67.220.220
+    - ${JSON.stringify('https://cloudflare-dns.com/dns-query#' + dnsProxyGroup)}
+    - ${JSON.stringify('https://dns.google/dns-query#' + dnsProxyGroup)}
+    - ${JSON.stringify('https://dns.quad9.net/dns-query#' + dnsProxyGroup)}
   fallback-filter:
     geoip: true
     geoip-code: CN
-    ipcidr:
-      - 240.0.0.0/4
-      - 127.0.0.1/32
-      - 0.0.0.0/32
-    domain:
-      - '+.google.com'
-      - '+.facebook.com'
-      - '+.youtube.com'
+    geosite:
+      - gfw
 `;
+	const 替换ClashDNS = yaml => {
+		const match = yaml.match(/^dns:[^\n]*\n[\s\S]*?(?=^[a-zA-Z][\w-]*:|(?![\s\S]))/m);
+		if (!match) return baseDnsBlock + yaml;
+		// 保留模板的监听、fake-ip 排除列表和 nameserver-policy 等未覆盖字段。
+		const managedKeys = new Set(['enable', 'ipv6', 'respect-rules', 'follow-rule', 'enhanced-mode', 'fake-ip-range', 'use-hosts', 'default-nameserver', 'proxy-server-nameserver', 'nameserver', 'fallback', 'fallback-filter']);
+		const lines = match[0].split('\n').slice(1);
+		const keyIndents = lines.filter(line => /^\s+[\w-]+:/.test(line)).map(line => line.search(/\S/));
+		const childIndent = Math.min(...keyIndents);
+		let preserve = false;
+		const extra = lines.filter(line => {
+			const key = line.match(/^\s+([\w-]+):/);
+			if (key && line.search(/\S/) === childIndent) preserve = !managedKeys.has(key[1]);
+			return preserve;
+		}).map(line => line.startsWith(' '.repeat(childIndent)) ? '  ' + line.slice(childIndent) : line).join('\n').trimEnd();
+		return yaml.replace(match[0], () => baseDnsBlock + (extra ? extra + '\n' : ''));
+	};
 
 	const 添加InlineGrpcUserAgent = (text) => text.replace(/grpc-opts:\s*\{([\s\S]*?)\}/i, (all, inner) => {
 		if (/grpc-user-agent\s*:/i.test(inner)) return all;
@@ -9494,7 +9535,7 @@ function Clash订阅配置文件热补丁(Clash_原始订阅内容, config_JSON 
 		return nodeLines;
 	};
 
-	if (!/^dns:\s*(?:\n|$)/m.test(clash_yaml)) clash_yaml = baseDnsBlock + clash_yaml;
+	clash_yaml = 替换ClashDNS(clash_yaml);
 	if (ECH_SNI && !HOSTS.includes(ECH_SNI)) HOSTS.push(ECH_SNI);
 
 	if (ECH启用 && HOSTS.length > 0) {

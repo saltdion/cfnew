@@ -16,6 +16,20 @@
 
 默认模板为 cmliu/ACL4SSR 的 `ACL4SSR_Online_Mini_MultiMode_CF.ini`。实际规则来自所配置模板和转换服务的输出；修改 SUBCONFIG 会改变规则。这里采用的是本次集成时的上游处理方式，不保证永远与后续 edgetunnel 版本完全一致。
 
+## Clash/Mihomo DNS 与规则覆写
+
+Clash 类订阅在转换后应用以下本项目设置；已有 DNS 块也会更新，保留模板中的监听、fake-ip 排除列表、`nameserver-policy` 等未覆盖字段：
+
+- 使用 fake-ip，范围 `198.18.0.1/16`，关闭 DNS IPv6，开启 `respect-rules`。
+- 主 DNS 为 `223.5.5.5`、`119.29.29.29`，明确通过 DIRECT；节点域名使用阿里、腾讯 DoH，通过 DIRECT 独立解析，避免与代理循环依赖。
+- fallback 只使用 Cloudflare、Google、Quad9 DoH，通过地址后的 `#策略组名称` 绑定代理。默认使用 `♻️ 自动选择`（也兼容无空格名称）；自定义模板没有该组时使用第一个策略组，此组应选择实际代理，不能选择 DIRECT。
+- 保留 pqjc 的 `fallback-filter`：`geoip: true`、`geoip-code: CN`、`geosite: [gfw]`。该 GeoSite 写法已被当前 Mihomo 文档标为废弃，运行时仍需匹配内核支持并提供可用的 GeoSite 数据。Quad9 默认服务包含恶意域名过滤。
+- `dl.google.com` 保留代理、删除对应直连条目；`xdrig.com` 保留拦截、删除对应直连条目；`baidustatic.com` 保留直连、删除整域名拦截，其广告子域名的独立拦截仍保留。
+
+这些设置针对 Clash/Mihomo 完整订阅，不改变原始节点订阅或其他客户端格式。代理不可用时，绑定代理的 fallback 不会自动退回直连。OpenClash 可以覆写订阅 DNS，应检查其最终运行配置；Worker 更新后需要刷新订阅。
+
+参考：[Mihomo DNS](https://wiki.metacubex.one/config/dns/)、[Cloudflare DoH](https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/)、[Google DoH](https://developers.google.com/speed/public-dns/docs/doh)、[Quad9 服务](https://docs.quad9.net/services/)。
+
 ## 订阅数据流
 
 1. 客户端访问 cfnew 原订阅地址。
