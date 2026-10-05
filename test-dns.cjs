@@ -64,4 +64,34 @@ const custom = patch('proxies:\n  - {name: node, type: vless}\nproxy-groups:\n  
 assert.ok(custom.includes('https://dns.google/dns-query#custom'));
 const compactName = patch(fixture.replaceAll('♻️ 自动选择', '♻️自动选择'));
 assert.ok(compactName.includes('https://dns.google/dns-query#♻️自动选择'));
+const protocolFixture = `proxies:
+  - {name: "VLESS, WS", type: vless, network: ws}
+  - name: Trojan WS
+    type: trojan
+    network: ws
+  - {name: VLESS xhttp, type: vless, network: xhttp}
+proxy-groups:
+  - name: ♻️ 自动选择
+    type: url-test
+    interval: 300
+    proxies: ["VLESS, WS", Trojan WS, VLESS xhttp]
+  - {name: backup, type: fallback, interval: 180, proxies: [Trojan WS]}
+rules:
+  - MATCH,♻️ 自动选择
+`;
+for (const input of [protocolFixture, protocolFixture.replaceAll('\n', '\r\n')]) {
+  const output = patch(input);
+  assert.equal((output.match(/interval: 600/g) || []).length, 3);
+  assert.equal((output.match(/lazy: false/g) || []).length, 3);
+  assert.equal((output.match(/expected-status: 204/g) || []).length, 3);
+  assert.ok(output.includes('name: "♻️ 自动选择"\n    type: select'));
+  assert.ok(output.includes('type: fallback, interval: 0'));
+  for (const name of ['♻️ VLESS＋WS', '♻️ Trojan＋WS', '♻️ VLESS＋xhttp']) assert.ok(output.includes('name: ' + JSON.stringify(name)));
+  assert.ok(output.includes('      - "VLESS, WS"'));
+  assert.equal(patch(output), output);
+}
+const partial = patch(protocolFixture.replace('network: xhttp', 'network: grpc'));
+assert.ok(!partial.includes('name: "♻️ VLESS＋xhttp"'));
+assert.equal((partial.match(/interval: 600/g) || []).length, 2);
+console.log('PASS: protocol/transport grouping, 600-second full checks, disabled duplicate timers, flow/block YAML, quoted names, partial protocol support and idempotence.');
 console.log('PASS: DNS replacement/insertion, proxy binding, preserved custom fields and credentials, three rule overrides, CRLF, custom groups and idempotence.');

@@ -2,6 +2,18 @@
 
 > 本 fork 新增 **cfnew 节点 + edgetunnel 客户端规则组合版**。部署请选择根目录 [`_worker.js`](./_worker.js)：节点生成、订阅地址和服务端转发沿用 cfnew；完整客户端配置采用 edgetunnel 的转换模板及兼容处理。组合原理、配置方法和限制见 [`COMBINATION.md`](./COMBINATION.md)。家宽链式完整订阅暂不支持组合规则。
 
+## xhttp 自定义域名部署注意事项
+
+**使用 Cloudflare 托管并代理的自定义域名连接本项目 xhttp 节点时，请开启该域名所属站点的 gRPC。** 本项目使用 `stream-one`，请求带有 `application/grpc` 内容类型；Cloudflare 在站点未开启 gRPC 时会拒绝这类请求并返回 HTTP 403。
+
+1. 登录 Cloudflare 控制台，进入节点自定义域名所属的站点。
+2. 打开 **网络（Network）**，将 **gRPC** 开关设为 **开启（On）**。该设置位于站点中，不在 Worker 设置中。
+3. 返回 OpenClash，重新测试一个 xhttp 节点并验证网站访问。无需将节点的 `network: xhttp` 改成 `grpc`，也无需重新生成订阅。
+
+典型现象是 WS 节点可用、所有 xhttp 节点测速失败，Mihomo 日志出现 `xhttp stream-one bad status: 403 Forbidden`。通过 xhttp 访问的 DoH 也可能随之失败，这不代表各 DNS 服务本身拒绝查询。用户已验证：开启 gRPC 后，此问题解决。
+
+若开启后仍返回 403，请继续检查 Cloudflare 安全规则、Access 或其他请求拦截。参见 [Cloudflare 官方 gRPC 说明](https://developers.cloudflare.com/network/grpc-connections/)。
+
 
 > **⚠️ 重要：部署后请将兼容日期设置为 `2026-01-20`**
 >

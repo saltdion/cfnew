@@ -30,6 +30,14 @@ Clash 类订阅在转换后应用以下本项目设置；已有 DNS 块也会更
 
 参考：[Mihomo DNS](https://wiki.metacubex.one/config/dns/)、[Cloudflare DoH](https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/)、[Google DoH](https://developers.google.com/speed/public-dns/docs/doh)、[Quad9 服务](https://docs.quad9.net/services/)。
 
+## 按协议与传输方式测速
+
+Clash/Mihomo 订阅将 VLESS＋WS、Trojan＋WS、VLESS＋xhttp 分为三个独立 `url-test` 组，分别包含对应组合的全部节点。每组 `interval: 600`、`lazy: false`，因此未被选中的协议组也进行定时检测；测试地址使用 HTTPS，并要求 HTTP 204。这测量响应延迟与可用性，不是下载吞吐量。协议关闭或节点缺失时，只生成非空组。
+
+原 `♻️ 自动选择` 保留名称并改为 `select`，用于选择三个协议测速组，默认选择 VLESS＋WS（如不存在则选择首个非空组）。各协议组自行选择其中延迟较低的节点，不在三个协议组之间自动比较延迟。原故障转移、负载均衡等已有检测组保留，但定时检测间隔改为 0，避免重复全量检测；手动检测或故障触发的检查仍可能增加请求。
+
+对于 42 个入口、三个组合的配置，每个完整检测周期覆盖 126 个节点，按 10 分钟估算每小时 756 次测试，不包含初始检测、重试、手动操作及故障检查。全节点仍可在现有手动策略组中选择，原始节点参数保持不变。
+
 ## 订阅数据流
 
 1. 客户端访问 cfnew 原订阅地址。

@@ -9379,6 +9379,56 @@ function Clash订阅配置文件热补丁(Clash_原始订阅内容, config_JSON 
 		return true;
 	}).join('\n');
 
+	// 按代理协议与传输方式分组，只有这三个组进行周期性全量检测。
+	const 分组协议测速 = yaml => {
+		const section = key => yaml.match(new RegExp('^' + key + ':\\s*\\n([\\s\\S]*?)(?=^[a-zA-Z][\\w-]*:|(?![\\s\\S]))', 'm'));
+		const splitItems = text => {
+			const starts = [...text.matchAll(/^([ \t]*)-\s+/gm)];
+			if (!starts.length) return [];
+			const indent = Math.min(...starts.map(match => match[1].length));
+			const positions = starts.filter(match => match[1].length === indent).map(match => match.index);
+			return positions.map((position, index) => text.slice(position, positions[index + 1] ?? text.length));
+		};
+		const scalar = (text, key) => {
+			const match = text.match(new RegExp('(?:^|[,{\\n]|-)[ \\t]*' + key + ':\\s*(?:"((?:\\\\.|[^"\\\\])*)"|\'((?:\'\'|[^\'])*)\'|([^,}\\r\\n]+))'));
+			if (!match) return null;
+			if (match[1] !== undefined) return JSON.parse('"' + match[1] + '"');
+			return match[2] !== undefined ? match[2].replace(/''/g, "'") : match[3].replace(/\s+#.*$/, '').trim();
+		};
+		const nodesSection = section('proxies');
+		const groupsSection = section('proxy-groups');
+		if (!nodesSection || !groupsSection) return yaml;
+		const protocols = [
+			{name: '♻️ VLESS＋WS', type: 'vless', network: 'ws', nodes: []},
+			{name: '♻️ Trojan＋WS', type: 'trojan', network: 'ws', nodes: []},
+			{name: '♻️ VLESS＋xhttp', type: 'vless', network: 'xhttp', nodes: []}
+		];
+		for (const item of splitItems(nodesSection[1])) {
+			const name = scalar(item, 'name');
+			const group = protocols.find(group => scalar(item, 'type') === group.type && scalar(item, 'network') === group.network);
+			if (name && group) group.nodes.push(name);
+		}
+		const active = protocols.filter(group => group.nodes.length);
+		if (!active.length) return yaml;
+		const items = splitItems(groupsSection[1]);
+		const oldAuto = items.find(item => /^♻️\s*自动选择$/.test(scalar(item, 'name') || ''));
+		const autoName = oldAuto ? scalar(oldAuto, 'name') : '♻️ 自动选择';
+		const autoBlock = `  - name: ${JSON.stringify(autoName)}\n    type: select\n    proxies:\n${active.map(group => '      - ' + JSON.stringify(group.name)).join('\n')}\n`;
+		const testBlocks = active.map(group => `  - name: ${JSON.stringify(group.name)}\n    type: url-test\n    url: https://www.gstatic.com/generate_204\n    expected-status: 204\n    interval: 600\n    tolerance: 50\n    lazy: false\n    proxies:\n${group.nodes.map(name => '      - ' + JSON.stringify(name)).join('\n')}\n`).join('');
+		const retained = items.filter(item => !protocols.some(group => scalar(item, 'name') === group.name)).map(item => {
+			if (/^♻️\s*自动选择$/.test(scalar(item, 'name') || '')) return autoBlock;
+			// 保留故障转移和负载均衡功能，但关闭其重复的定时检测。
+			if (['url-test', 'fallback', 'load-balance'].includes(scalar(item, 'type'))) {
+				if (/\binterval:\s*\d+/.test(item)) return item.replace(/\binterval:\s*\d+/, 'interval: 0');
+				if (/^\s*-\s*\{/.test(item)) return item.replace(/\}(\s*)$/, ', interval: 0}$1');
+				return item.trimEnd() + '\n    interval: 0\n';
+			}
+			return item;
+		}).join('');
+		return yaml.replace(groupsSection[0], () => 'proxy-groups:\n' + retained + (oldAuto ? '' : autoBlock) + testBlocks);
+	};
+	clash_yaml = 分组协议测速(clash_yaml);
+
 	// 优先绑定自动选择组；自定义模板则使用其第一个策略组。
 	const groupSection = clash_yaml.match(/^proxy-groups:\s*\n([\s\S]*?)(?=^[a-zA-Z][\w-]*:|(?![\s\S]))/m)?.[1] || '';
 	const groupNames = [...groupSection.matchAll(/^\s*-\s*(?:\{\s*)?name:\s*(?:"([^"]+)"|'([^']+)'|([^,}\r\n]+))/gm)].map(match => (match[1] || match[2] || match[3]).trim());
